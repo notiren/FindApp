@@ -117,7 +117,7 @@ if ($LiteScan) {
 Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
 Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
 
-# ---------------- Helpers ----------------
+# ---------------- HELPERS ----------------
 
 # Limited recursive filesystem enumerator (depth limited)
 function Get-ChildItems-Limited {
@@ -184,28 +184,20 @@ function Get-RegistryKeys-Limited {
 }
 
 # Progress logging helper (prints short progress messages)
-function Progress-Message {
+function Write-Progress {
     param([string]$Message)
     Write-Host $Message -ForegroundColor DarkGray
 }
 
-# Append content into a buffer for saving report (we build final report at end)
-$reportLines = New-Object System.Collections.Generic.List[string]
-
-function Report-AddLine {
-    param([string]$Line)
-    $reportLines.Add($Line) | Out-Null
-}
-
-# ---------------- Storage ----------------
+# ---------------- STORAGE ----------------
 $foundPrograms = New-Object System.Collections.Generic.List[Object]
 $foundProcesses = New-Object System.Collections.Generic.List[Object]
 $foundFiles = New-Object System.Collections.Generic.List[Object]
 $foundRegistry = New-Object System.Collections.Generic.List[string]
 
 # ---------------- INSTALLED PROGRAMS ----------------
-Progress-Message "Scanning installed programs..."
-Report-AddLine("=== Installed Programs ===")
+Write-Progress "Scanning installed programs..."
+
 $uninstallPaths = @(
     "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
     "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -213,44 +205,31 @@ $uninstallPaths = @(
 )
 
 foreach ($p in $uninstallPaths) {
-    try {
-        $items = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
-        foreach ($it in $items) {
-            if ($null -ne $it.DisplayName -and ($it.DisplayName -imatch [regex]::Escape($AppName))) {
-                # add unique by PSPath if present, fallback to DisplayName
-                $exists = $false
-                if ($it.PSPath) {
-                    foreach ($x in $foundPrograms) { if ($x.PSPath -and $x.PSPath -eq $it.PSPath) { $exists = $true; break } }
-                } else {
-                    foreach ($x in $foundPrograms) { if ($x.DisplayName -and $x.DisplayName -eq $it.DisplayName) { $exists = $true; break } }
-                }
-                if (-not $exists) {
-                    $foundPrograms.Add($it) | Out-Null
-                    Report-AddLine(("DisplayName: {0}" -f $it.DisplayName))
-                    if ($it.PSPath) { Report-AddLine(("PSPath: {0}" -f $it.PSPath)) }
-                }
+    $items = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
+    foreach ($it in $items) {
+        if ($it.DisplayName -imatch [regex]::Escape($AppName)) {
+            $exists = $foundPrograms | Where-Object {
+                ($it.PSPath -and $_.PSPath -eq $it.PSPath) -or ($_.DisplayName -eq $it.DisplayName)
             }
+            if (-not $exists) { $foundPrograms.Add($it) | Out-Null }
         }
-    } catch { }
+    }
 }
 
 # ---------------- RUNNING PROCESSES ----------------
-Progress-Message "Scanning running processes..."
-Report-AddLine("`n=== Running Processes ===")
+Write-Progress "Scanning running processes..."
 try {
     $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -imatch [regex]::Escape($AppName) }
     foreach ($pr in $procs) {
         # avoid duplicates by Id
         if (-not ($foundProcesses | Where-Object { $_.Id -eq $pr.Id })) {
             $foundProcesses.Add($pr) | Out-Null
-            Report-AddLine(("{0} (Id: {1})" -f $pr.ProcessName, $pr.Id))
         }
     }
 } catch { }
 
 # ---------------- FILE LOCATIONS ----------------
-Progress-Message "Scanning files & folders..."
-Report-AddLine("`n=== File Locations ===")
+Write-Progress "Scanning files & folders..."
 
 if ($LiteScan) {
     $fileRoots = @(
@@ -285,7 +264,6 @@ foreach ($root in $fileRoots) {
                 # prevent duplicates by FullName
                 if (-not ($foundFiles | Where-Object { $_.FullName -eq $it.FullName })) {
                     $foundFiles.Add($it) | Out-Null
-                    Report-AddLine($it.FullName)
                 }
             }
         }
@@ -293,8 +271,7 @@ foreach ($root in $fileRoots) {
 }
 
 # ---------------- REGISTRY ENTRIES ----------------
-Progress-Message "Scanning registry entries..."
-Report-AddLine("`n=== Registry Entries ===")
+Write-Progress "Scanning registry entries..."
 
 if ($LiteScan) {
     $regTargets = @(
@@ -312,7 +289,6 @@ if ($LiteScan) {
                         if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
                             if (-not ($foundRegistry -contains $k.PSPath)) {
                                 $foundRegistry.Add($k.PSPath) | Out-Null
-                                Report-AddLine($k.PSPath)
                             }
                             break
                         }
@@ -321,8 +297,7 @@ if ($LiteScan) {
             }
         } catch { }
     }
-}
-elseif ($DeepScan) {
+} elseif ($DeepScan) {
     $roots = @("HKLM:\", "HKCU:\")
     foreach ($r in $roots) {
         $keys = Get-RegistryKeys-Limited -RootKey $r -MaxDepth $MaxDepth
@@ -333,7 +308,6 @@ elseif ($DeepScan) {
                     if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
                         if (-not ($foundRegistry -contains $k.PSPath)) {
                             $foundRegistry.Add($k.PSPath) | Out-Null
-                            Report-AddLine($k.PSPath)
                         }
                         break
                     }
@@ -341,8 +315,7 @@ elseif ($DeepScan) {
             } catch { }
         }
     }
-}
-else {
+} else {
     # Fast mode: uninstall keys + lightweight SOFTWARE subtree
     $regTargets = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -359,7 +332,6 @@ else {
                         if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
                             if (-not ($foundRegistry -contains $k.PSPath)) {
                                 $foundRegistry.Add($k.PSPath) | Out-Null
-                                Report-AddLine($k.PSPath)
                             }
                             break
                         }
@@ -379,7 +351,6 @@ else {
                     if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
                         if (-not ($foundRegistry -contains $k.PSPath)) {
                             $foundRegistry.Add($k.PSPath) | Out-Null
-                            Report-AddLine($k.PSPath)
                         }
                         break
                     }
@@ -419,7 +390,7 @@ foreach ($item in $summary) {
                         Write-Host ("{0,-20}" -f $p.DisplayName) -ForegroundColor White
                     }
                 }
-                if ($foundProcesses.Count -gt 0) { Write-Host "" }
+                if ($foundPrograms -or $foundProcesses) { Write-Host "" }
             }
             "Processes Found:" {
                 foreach ($proc in $foundProcesses) {
@@ -427,13 +398,13 @@ foreach ($item in $summary) {
                     Write-Host ("{0}" -f $proc.ID) -ForegroundColor DarkCyan -NoNewline
                     Write-Host ")" -ForegroundColor White
                 }
-                if ($foundFiles.Count -gt 0) { Write-Host "" }
+                if ($foundProcesses -or $foundFiles) { Write-Host "" }
             }
             "Files/Folders Found:" {
                 foreach ($file in $foundFiles) {
                     Write-Host $file.FullName -ForegroundColor White
                 }
-                if ($foundRegistry.Count -gt 0) { Write-Host "" }
+                if ($foundFiles -or $foundRegistry) { Write-Host "" }
             }
             "Registry Entries Found:" {
                 foreach ($reg in $foundRegistry) {
@@ -457,37 +428,56 @@ Write-Host "Scan completed." -ForegroundColor Cyan
 
 # ---------------- SAVE REPORT ----------------
 if ($SaveReport) {
-    $sb = New-Object System.Text.StringBuilder
-    $sb.AppendLine("==== Scan Summary for '$AppName' ====") | Out-Null
-    $sb.AppendLine(("Scan Mode: {0} (MaxDepth={1})" -f $ModeName, $MaxDepth)) | Out-Null
-    $sb.AppendLine("") | Out-Null
-
-    $sb.AppendLine("Programs Found: $($foundPrograms.Count)") | Out-Null
-    foreach ($p in $foundPrograms) {
-        if ($p.DisplayName) {
-            $sb.AppendLine("  " + $p.DisplayName) | Out-Null
-        } else {
-            $sb.AppendLine(("  {0}" -f ($p | Out-String).Trim())) | Out-Null
+    function Add-ReportLine {
+        param(
+            [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+            [string[]]$Line
+        )
+        process {
+            foreach ($l in $Line) {
+                if (-not [string]::IsNullOrWhiteSpace($l)) {
+                    $l | Out-File -FilePath $ReportFile -Encoding UTF8 -Append
+                } else {
+                    "" | Out-File -FilePath $ReportFile -Encoding UTF8 -Append
+                }
+            }
         }
     }
 
-    $sb.AppendLine("") | Out-Null
-    $sb.AppendLine("Processes Found: $($foundProcesses.Count)") | Out-Null
-    foreach ($pr in $foundProcesses) {
-        $sb.AppendLine(("  {0} (Id: {1})" -f $pr.ProcessName, $pr.Id)) | Out-Null
-    }
+    # Clear the file first
+    "" | Out-File -FilePath $ReportFile -Encoding UTF8
 
-    $sb.AppendLine("") | Out-Null
-    $sb.AppendLine("Files/Folders Found: $($foundFiles.Count)") | Out-Null
-    foreach ($f in $foundFiles) { $sb.AppendLine("  " + $f.FullName) | Out-Null }
+    # Start writing report
+    @(
+        "==== Scan Summary for '$AppName' ====",
+        ("Scan Mode: {0} (MaxDepth={1})" -f $ModeName, $MaxDepth),
+        ""
+    ) | Add-ReportLine
 
-    $sb.AppendLine("") | Out-Null
-    $sb.AppendLine("Registry Entries Found: $($foundRegistry.Count)") | Out-Null
-    foreach ($r in $foundRegistry) { $sb.AppendLine("  " + $r) | Out-Null }
+    # Programs
+    ("Programs Found: $($foundPrograms.Count)") | Add-ReportLine
+    $foundPrograms | ForEach-Object {
+        if ($_.DisplayName) { "  $($_.DisplayName)" } else { "  $($_ | Out-String).Trim()" }
+    } | Add-ReportLine
+    "" | Add-ReportLine
 
-    [IO.File]::WriteAllText($ReportFile, $sb.ToString(), [System.Text.Encoding]::UTF8)
+    # Processes
+    ("Processes Found: $($foundProcesses.Count)") | Add-ReportLine
+    $foundProcesses | ForEach-Object { "  $($_.ProcessName) (Id: $($_.Id))" } | Add-ReportLine
+    "" | Add-ReportLine
+
+    # Files/Folders
+    ("Files/Folders Found: $($foundFiles.Count)") | Add-ReportLine
+    $foundFiles | ForEach-Object { "  $($_.FullName)" } | Add-ReportLine
+    "" | Add-ReportLine
+
+    # Registry
+    ("Registry Entries Found: $($foundRegistry.Count)") | Add-ReportLine
+    $foundRegistry | ForEach-Object { "  $_" } | Add-ReportLine
+
     Write-Host "Report saved to: $ReportFile" -ForegroundColor Cyan
 }
+
 
 # ---------------- DELETE FOUND (prompt) ----------------
 if ($DeleteFound) {
