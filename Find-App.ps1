@@ -102,17 +102,57 @@ $sanitizedAppName = ($AppName -replace '[\\/:*?"<>|]', '_').Trim()
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportFile = Join-Path $PSScriptRoot "$($sanitizedAppName)_Search_Report_$timestamp.txt"
 
-# Determine mode and depth
+# Determine mode, depth, and roots
 if ($LiteScan) {
     $MaxDepth = 1
     $ModeName = "LITE"
+    $fileRoots = @(
+        "$env:USERPROFILE\AppData\Local",
+        "$env:USERPROFILE\AppData\Roaming"
+    )
+    $regTargets = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    $regRoots = @()
+
 } elseif ($DeepScan) {
     $MaxDepth = 3
     $ModeName = "DEEP"
+    $fileRoots = @("C:\")
+    $regTargets = @()
+    $regRoots = @(
+        "HKLM:\", 
+        "HKCU:\"
+    )
+
 } else {
     $MaxDepth = 2
     $ModeName = "FAST"
+    $fileRoots = @(
+        "$env:ProgramFiles",
+        "$env:ProgramFiles(x86)",
+        "$env:LOCALAPPDATA",
+        "$env:APPDATA",
+        "$env:ProgramData"
+    )
+    $regTargets = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    $regRoots = @(
+        "HKLM:\SOFTWARE", 
+        "HKLM:\SOFTWARE\WOW6432Node", 
+        "HKCU:\SOFTWARE"
+    )
 }
+
+# Normalize roots to eliminate trailing \
+$fileRoots  = $fileRoots  | ForEach-Object { ($_ -replace '\\+$','') }
+$regTargets = $regTargets | ForEach-Object { ($_ -replace '\\+$','') }
+$regRoots   = $regRoots   | ForEach-Object { ($_ -replace '\\+$','') }
 
 Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
 Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
@@ -189,6 +229,9 @@ function Write-Progress {
     Write-Host $Message -ForegroundColor DarkGray
 }
 
+# Escaped name once
+$escapedAppName = [regex]::Escape($AppName)
+
 # ---------------- STORAGE ----------------
 $foundPrograms = New-Object System.Collections.Generic.List[Object]
 $foundProcesses = New-Object System.Collections.Generic.List[Object]
@@ -207,7 +250,7 @@ $uninstallPaths = @(
 foreach ($p in $uninstallPaths) {
     $items = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
     foreach ($it in $items) {
-        if ($it.DisplayName -imatch [regex]::Escape($AppName)) {
+        if ($it.DisplayName -imatch $escapedAppName) {
             $exists = $foundPrograms | Where-Object {
                 ($it.PSPath -and $_.PSPath -eq $it.PSPath) -or ($_.DisplayName -eq $it.DisplayName)
             }
@@ -218,8 +261,9 @@ foreach ($p in $uninstallPaths) {
 
 # ---------------- RUNNING PROCESSES ----------------
 Write-Progress "Scanning running processes..."
+
 try {
-    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -imatch [regex]::Escape($AppName) }
+    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -imatch $escapedAppName }
     foreach ($pr in $procs) {
         # avoid duplicates by Id
         if (-not ($foundProcesses | Where-Object { $_.Id -eq $pr.Id })) {
@@ -230,23 +274,6 @@ try {
 
 # ---------------- FILE LOCATIONS ----------------
 Write-Progress "Scanning files & folders..."
-
-if ($LiteScan) {
-    $fileRoots = @(
-        "$env:USERPROFILE\AppData\Local",
-        "$env:USERPROFILE\AppData\Roaming"
-    )
-} elseif ($DeepScan) {
-    $fileRoots = @("C:\")
-} else {
-    $fileRoots = @(
-        "$env:ProgramFiles",
-        "$env:ProgramFiles(x86)",
-        "$env:LOCALAPPDATA",
-        "$env:APPDATA",
-        "$env:ProgramData"
-    )
-}
 
 # skip some heavy/system paths
 $skipRoots = @(
@@ -260,12 +287,12 @@ foreach ($root in $fileRoots) {
     try {
         $items = Get-ChildItems-Limited -Root $root -MaxDepth $MaxDepth
         foreach ($it in $items) {
-            if ($null -ne $it.Name -and ($it.Name -imatch [regex]::Escape($AppName))) {
+            if ($null -ne $it.Name -and ($it.Name -imatch $escapedAppName)) {
                 # prevent duplicates by FullName
                 if (-not ($foundFiles | Where-Object { $_.FullName -eq $it.FullName })) {
                     $foundFiles.Add($it) | Out-Null
                 }
-            }
+            }   
         }
     } catch { }
 }
@@ -273,90 +300,40 @@ foreach ($root in $fileRoots) {
 # ---------------- REGISTRY ENTRIES ----------------
 Write-Progress "Scanning registry entries..."
 
-if ($LiteScan) {
-    $regTargets = @(
-        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    )
-    foreach ($key in $regTargets) {
+$registryScanList = @()
+$registryScanList += $regTargets | ForEach-Object { [PSCustomObject]@{ Path = $_; Recursive = $false } }
+$registryScanList += $regRoots   | ForEach-Object { [PSCustomObject]@{ Path = $_; Recursive = $true  } }
+
+foreach ($entry in $registryScanList) {
+    # Determine how to get keys based on mode
+    if ($entry.Recursive) {
         try {
-            $items = Get-ChildItem -Path $key -ErrorAction SilentlyContinue
-            foreach ($k in $items) {
-                try {
-                    $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
-                    foreach ($prop in $props.PSObject.Properties) {
-                        if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
-                            if (-not ($foundRegistry -contains $k.PSPath)) {
-                                $foundRegistry.Add($k.PSPath) | Out-Null
-                            }
-                            break
-                        }
-                    }
-                } catch { }
-            }
-        } catch { }
-    }
-} elseif ($DeepScan) {
-    $roots = @("HKLM:\", "HKCU:\")
-    foreach ($r in $roots) {
-        $keys = Get-RegistryKeys-Limited -RootKey $r -MaxDepth $MaxDepth
-        foreach ($k in $keys) {
-            try {
-                $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
-                foreach ($prop in $props.PSObject.Properties) {
-                    if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
-                        if (-not ($foundRegistry -contains $k.PSPath)) {
-                            $foundRegistry.Add($k.PSPath) | Out-Null
-                        }
-                        break
-                    }
-                }
-            } catch { }
+            $keys = Get-RegistryKeys-Limited -RootKey $entry.Path -MaxDepth $MaxDepth
+        } catch {
+            $keys = @()
         }
     }
-} else {
-    # Fast mode: uninstall keys + lightweight SOFTWARE subtree
-    $regTargets = @(
-        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    )
-    foreach ($key in $regTargets) {
+    else {
         try {
-            $items = Get-ChildItem -Path $key -ErrorAction SilentlyContinue
-            foreach ($k in $items) {
-                try {
-                    $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
-                    foreach ($prop in $props.PSObject.Properties) {
-                        if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
-                            if (-not ($foundRegistry -contains $k.PSPath)) {
-                                $foundRegistry.Add($k.PSPath) | Out-Null
-                            }
-                            break
-                        }
-                    }
-                } catch { }
-            }
-        } catch { }
+            $keys = Get-ChildItem -Path $entry.Path -ErrorAction SilentlyContinue
+        } catch {
+            $keys = @()
+        }
     }
 
-    $softRoots = @("HKLM:\SOFTWARE", "HKLM:\SOFTWARE\WOW6432Node", "HKCU:\SOFTWARE")
-    foreach ($sr in $softRoots) {
-        $keys = Get-RegistryKeys-Limited -RootKey $sr -MaxDepth 2
-        foreach ($k in $keys) {
-            try {
-                $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
-                foreach ($prop in $props.PSObject.Properties) {
-                    if ($prop.Value -is [string] -and ($prop.Value -imatch [regex]::Escape($AppName))) {
-                        if (-not ($foundRegistry -contains $k.PSPath)) {
-                            $foundRegistry.Add($k.PSPath) | Out-Null
-                        }
-                        break
+    foreach ($k in $keys) {
+        if (-not $k) { continue }
+        try {
+            $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
+            foreach ($prop in $props.PSObject.Properties) {
+                if ($prop.Value -is [string] -and ($prop.Value -imatch $escapedAppName)) {
+                    if (-not ($foundRegistry -contains $k.PSPath)) {
+                        $foundRegistry.Add($k.PSPath) | Out-Null
                     }
+                    break
                 }
-            } catch { }
-        }
+            }
+        } catch { }
     }
 }
 
@@ -375,7 +352,7 @@ $summary = @(
 )
 
 # Calculate max label length for alignment
-$maxLabelLen = ($summary.Label | Measure-Object -Maximum Length).Maximum
+# $maxLabelLen = ($summary.Label | Measure-Object -Maximum Length).Maximum
 
 # Print aligned counts
 foreach ($item in $summary) {
