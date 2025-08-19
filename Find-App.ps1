@@ -97,10 +97,13 @@ if ($Examples) {
 # ---------------- CONFIG ----------------
 $ErrorActionPreference = "SilentlyContinue"
 
-# sanitize AppName for filename
+# Sanitize AppName for filename
 $sanitizedAppName = ($AppName -replace '[\\/:*?"<>|]', '_').Trim()
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportFile = Join-Path $PSScriptRoot "$($sanitizedAppName)_Search_Report_$timestamp.txt"
+
+# Escape regex + allow spaces/dash/underscore
+$escapedAppName = [regex]::Escape($AppName) -replace '\\ ', '[-_\s]*'
 
 # Determine mode, depth, and roots
 if ($LiteScan) {
@@ -136,6 +139,8 @@ if ($LiteScan) {
         "$env:LOCALAPPDATA",
         "$env:APPDATA",
         "$env:ProgramData"
+        "$env:USERPROFILE\Downloads",
+        "$env:USERPROFILE\Desktop"
     )
     $regTargets = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -228,9 +233,6 @@ function Write-Progress {
     param([string]$Message)
     Write-Host $Message -ForegroundColor DarkGray
 }
-
-# Escaped name once
-$escapedAppName = [regex]::Escape($AppName)
 
 # ---------------- STORAGE ----------------
 $foundPrograms = New-Object System.Collections.Generic.List[Object]
