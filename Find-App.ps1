@@ -50,6 +50,10 @@ param (
     [switch]$Examples
 )
 
+if ($LiteScan -and $DeepScan) {
+    throw "Cannot specify both -LiteScan and -DeepScan."
+}
+
 # ---------------- EXAMPLES ----------------
 if ($Examples) {
     $sampleApps = @("Discord", "Zoom", "Spotify", "Slack", "Notion", "Telegram", "OBS Studio", "WeChat", "Steam", "VLC")
@@ -94,6 +98,72 @@ if ($Examples) {
     exit
 }
 
+# ---------------- HELPERS ----------------
+
+# Limited recursive filesystem enumerator (depth limited)
+function Get-ChildItems-Limited {
+    param(
+        [Parameter(Mandatory=$true)][string]$Root,
+        [int]$MaxDepth = 2
+    )
+    $results = New-Object System.Collections.Generic.List[System.Object]
+
+    function RecursePath {
+        param($Path, $Depth)
+        if ($Depth -gt $MaxDepth) { return }
+        
+        try {
+            $items = Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        } catch { return }
+
+        foreach ($it in $items) {
+            $results.Add($it)
+            if ($it.PSIsContainer -and $Depth -lt $MaxDepth) {
+                RecursePath -Path $it.FullName -Depth ($Depth + 1)
+            }
+        }
+    }
+
+    RecursePath -Path $Root -Depth 0
+    return $results
+}
+
+# Limited recursive registry enumerator (depth limited)
+function Get-RegistryKeys-Limited {
+    param(
+        [Parameter(Mandatory=$true)][string]$RootKey,
+        [int]$MaxDepth = 2
+    )
+
+    $results = New-Object System.Collections.Generic.List[Object]
+
+    function RecurseReg {
+        param($KeyPath, $Depth)
+        if ($Depth -gt $MaxDepth) { return }
+
+        try {
+            $children = Get-ChildItem -Path $KeyPath -ErrorAction SilentlyContinue
+        } catch { return }
+
+        foreach ($ch in $children) {
+            if ($null -eq $ch) { continue }
+            $results.Add($ch)
+            if ($Depth -lt $MaxDepth) {
+                RecurseReg -KeyPath $ch.PSPath -Depth ($Depth + 1)
+            }
+        }
+    }
+
+    RecurseReg -KeyPath $RootKey -Depth 0
+    return $results
+}
+
+# Progress logging helper (prints short progress messages)
+function Write-Progress {
+    param([string]$Message)
+    Write-Host $Message -ForegroundColor DarkGray
+}
+
 # ---------------- CONFIG ----------------
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -102,10 +172,10 @@ $sanitizedAppName = ($AppName -replace '[\\/:*?"<>|]', '_').Trim()
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportFile = Join-Path $PSScriptRoot "$($sanitizedAppName)_Search_Report_$timestamp.txt"
 
-# Escape regex + allow spaces/dash/underscore
+# Escape AppName for regex and allow spaces/dashes/underscores between words
 $escapedAppName = [regex]::Escape($AppName) -replace '\\ ', '[-_\s]*'
 
-# Determine mode, depth, and roots
+# ---------------- MODE-SPECIFIC DEPTH, ROOTS ----------------
 if ($LiteScan) {
     $MaxDepth = 1
     $ModeName = "LITE"
@@ -138,9 +208,10 @@ if ($LiteScan) {
         "$env:ProgramFiles(x86)",
         "$env:LOCALAPPDATA",
         "$env:APPDATA",
-        "$env:ProgramData"
+        "$env:ProgramData",
         "$env:USERPROFILE\Downloads",
-        "$env:USERPROFILE\Desktop"
+        "$env:USERPROFILE\Desktop",
+        "$env:USERPROFILE\AppData\Local\Programs"
     )
     $regTargets = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -154,85 +225,31 @@ if ($LiteScan) {
     )
 }
 
-# Normalize roots to eliminate trailing \
+# ---------------- GENERAL SKIP ROOTS/KEYS ---------------- 
+$skipRoots = @(
+    "$env:SystemRoot",
+    "$env:ProgramFiles\WindowsApps",
+    "$env:LOCALAPPDATA\Temp",
+    "C:\System Volume Information",
+    "C:\$Recycle.Bin"
+)
+$skipKeys = @(
+    "HARDWARE",
+    "SECURITY",
+    "SAM"
+)
+
+# ---------------- NORMALIZATION ----------------
 $fileRoots  = $fileRoots  | ForEach-Object { ($_ -replace '\\+$','') }
 $regTargets = $regTargets | ForEach-Object { ($_ -replace '\\+$','') }
 $regRoots   = $regRoots   | ForEach-Object { ($_ -replace '\\+$','') }
+$skipRoots  = $skipRoots  | ForEach-Object { ($_ -replace '\\+$','') }
+
+# ---------------- UNINSTALL PATHS ----------------
+$uninstallPaths = $regTargets | ForEach-Object { "$_\*" }
 
 Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
 Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
-
-# ---------------- HELPERS ----------------
-
-# Limited recursive filesystem enumerator (depth limited)
-function Get-ChildItems-Limited {
-    param(
-        [Parameter(Mandatory=$true)][string]$Root,
-        [int]$MaxDepth = 2
-    )
-    $results = New-Object System.Collections.Generic.List[System.Object]
-
-    function RecursePath {
-        param($Path, $Depth)
-        if ($Depth -gt $MaxDepth) { return }
-
-        try {
-            $items = Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-        } catch {
-            return
-        }
-
-        foreach ($it in $items) {
-            $results.Add($it)
-            if ($it.PSIsContainer -and $Depth -lt $MaxDepth) {
-                RecursePath -Path $it.FullName -Depth ($Depth + 1)
-            }
-        }
-    }
-
-    RecursePath -Path $Root -Depth 0
-    return $results
-}
-
-# Limited recursive registry enumerator (depth limited)
-function Get-RegistryKeys-Limited {
-    param(
-        [Parameter(Mandatory=$true)][string]$RootKey,
-        [int]$MaxDepth = 2
-    )
-
-    $results = New-Object System.Collections.Generic.List[Object]
-    $skipKeys = @("HARDWARE","SECURITY","SAM")
-
-    function RecurseReg {
-        param($KeyPath, $Depth)
-        if ($Depth -gt $MaxDepth) { return }
-
-        try {
-            $children = Get-ChildItem -Path $KeyPath -ErrorAction SilentlyContinue
-        } catch {
-            return
-        }
-
-        foreach ($ch in $children) {
-            if ($null -eq $ch) { continue }
-            if ($skipKeys -contains $ch.PSChildName.ToUpper()) { continue }
-            $results.Add($ch)
-            if ($Depth -lt $MaxDepth) {
-                RecurseReg -KeyPath $ch.PSPath -Depth ($Depth + 1)
-            }
-        }
-    }
-
-    RecurseReg -KeyPath $RootKey -Depth 0
-    return $results
-}
-
-# Progress logging helper (prints short progress messages)
-function Write-Progress {
-    param([string]$Message)
-    Write-Host $Message -ForegroundColor DarkGray
-}
 
 # ---------------- STORAGE ----------------
 $foundPrograms = New-Object System.Collections.Generic.List[Object]
@@ -240,14 +257,8 @@ $foundProcesses = New-Object System.Collections.Generic.List[Object]
 $foundFiles = New-Object System.Collections.Generic.List[Object]
 $foundRegistry = New-Object System.Collections.Generic.List[string]
 
-# ---------------- INSTALLED PROGRAMS ----------------
+# ---------------- INSTALLED PROGRAMS SCAN ----------------
 Write-Progress "Scanning installed programs..."
-
-$uninstallPaths = @(
-    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
-)
 
 foreach ($p in $uninstallPaths) {
     $items = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
@@ -261,7 +272,7 @@ foreach ($p in $uninstallPaths) {
     }
 }
 
-# ---------------- RUNNING PROCESSES ----------------
+# ---------------- RUNNING PROCESSES SCAN ----------------
 Write-Progress "Scanning running processes..."
 
 try {
@@ -274,18 +285,13 @@ try {
     }
 } catch { }
 
-# ---------------- FILE LOCATIONS ----------------
+# ---------------- FILE SCAN ----------------
 Write-Progress "Scanning files & folders..."
-
-# skip some heavy/system paths
-$skipRoots = @(
-    "$env:SystemRoot",
-    "$env:ProgramFiles\WindowsApps"
-) | ForEach-Object { ($_ -replace '\\+$','') }
 
 foreach ($root in $fileRoots) {
     if (-not (Test-Path $root)) { continue }
     if ($skipRoots -contains $root) { continue }
+
     try {
         $items = Get-ChildItems-Limited -Root $root -MaxDepth $MaxDepth
         foreach ($it in $items) {
@@ -299,7 +305,7 @@ foreach ($root in $fileRoots) {
     } catch { }
 }
 
-# ---------------- REGISTRY ENTRIES ----------------
+# ---------------- REGISTRY SCAN ----------------
 Write-Progress "Scanning registry entries..."
 
 $registryScanList = @()
@@ -308,23 +314,20 @@ $registryScanList += $regRoots   | ForEach-Object { [PSCustomObject]@{ Path = $_
 
 foreach ($entry in $registryScanList) {
     # Determine how to get keys based on mode
-    if ($entry.Recursive) {
-        try {
-            $keys = Get-RegistryKeys-Limited -RootKey $entry.Path -MaxDepth $MaxDepth
-        } catch {
-            $keys = @()
+    try {
+        $keys = if ($entry.Recursive) {
+            Get-RegistryKeys-Limited -RootKey $entry.Path -MaxDepth $MaxDepth
+        } else {
+            Get-ChildItem -Path $entry.Path -ErrorAction SilentlyContinue
         }
-    }
-    else {
-        try {
-            $keys = Get-ChildItem -Path $entry.Path -ErrorAction SilentlyContinue
-        } catch {
-            $keys = @()
-        }
+    } catch {
+        $keys = @()
     }
 
     foreach ($k in $keys) {
         if (-not $k) { continue }
+        if ($skipKeys -contains $k.PSChildName.ToUpper()) { continue }
+
         try {
             $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
             foreach ($prop in $props.PSObject.Properties) {
