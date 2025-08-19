@@ -66,6 +66,7 @@
 
 - `-AppName` is required for all scan operations.
 - `-Examples` switch is a separate parameter set and will **not** prompt for an app name.
+- `-DeleteFound` switch requests for confirmation (Y/N) before deleting matched files.
 - Colors in the output help highlight important information (process IDs, registry keys, etc.).
 
 ---
