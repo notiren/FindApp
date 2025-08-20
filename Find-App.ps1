@@ -191,14 +191,30 @@ if ($LiteScan) {
     $regRoots = @()
 
 } elseif ($DeepScan) {
-    $MaxDepth = 3
+    $MaxDepth = 5
     $ModeName = "DEEP"
-    $fileRoots = @("C:\")
-    $regTargets = @()
+    $fileRoots = @(
+        "C:\",
+        "$env:ProgramFiles",
+        "$env:ProgramFiles(x86)",
+        "$env:LOCALAPPDATA",
+        "$env:APPDATA",
+        "$env:ProgramData",
+        "$env:USERPROFILE\Downloads",
+        "$env:USERPROFILE\Desktop",
+        "$env:USERPROFILE\AppData\Local\Programs"
+    ) | Sort-Object -Unique
+
+    $regTargets = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    ) | Sort-Object -Unique
+
     $regRoots = @(
         "HKLM:\", 
         "HKCU:\"
-    )
+    ) | Where-Object { $_ -notin $regTargets } 
 
 } else {
     $MaxDepth = 2
@@ -212,17 +228,19 @@ if ($LiteScan) {
         "$env:USERPROFILE\Downloads",
         "$env:USERPROFILE\Desktop",
         "$env:USERPROFILE\AppData\Local\Programs"
-    )
+    ) | Sort-Object -Unique
+
     $regTargets = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
         "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    )
+    ) | Sort-Object -Unique
+
     $regRoots = @(
         "HKLM:\SOFTWARE", 
         "HKLM:\SOFTWARE\WOW6432Node", 
         "HKCU:\SOFTWARE"
-    )
+    ) | Where-Object { $_ -notin $regTargets } 
 }
 
 # ---------------- GENERAL SKIP ROOTS/KEYS ---------------- 
@@ -231,12 +249,16 @@ $skipRoots = @(
     "$env:ProgramFiles\WindowsApps",
     "$env:LOCALAPPDATA\Temp",
     "C:\System Volume Information",
-    "C:\$Recycle.Bin"
+    "C:\$Recycle.Bin",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing",
+    "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager",
+    "HKLM:\SYSTEM\CurrentControlSet\Services"
 )
 $skipKeys = @(
     "HARDWARE",
     "SECURITY",
-    "SAM"
+    "SAM",
+    "WinSxS"
 )
 
 # ---------------- NORMALIZATION ----------------
@@ -248,14 +270,14 @@ $skipRoots  = $skipRoots  | ForEach-Object { ($_ -replace '\\+$','') }
 # ---------------- UNINSTALL PATHS ----------------
 $uninstallPaths = $regTargets | ForEach-Object { "$_\*" }
 
-Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
-Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
-
 # ---------------- STORAGE ----------------
 $foundPrograms = New-Object System.Collections.Generic.List[Object]
 $foundProcesses = New-Object System.Collections.Generic.List[Object]
 $foundFiles = New-Object System.Collections.Generic.List[Object]
 $foundRegistry = New-Object System.Collections.Generic.List[string]
+
+Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
+Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
 
 # ---------------- INSTALLED PROGRAMS SCAN ----------------
 Write-Progress "Scanning installed programs..."
@@ -459,7 +481,6 @@ if ($SaveReport) {
 
     Write-Host "Report saved to: $ReportFile" -ForegroundColor Cyan
 }
-
 
 # ---------------- DELETE FOUND (prompt) ----------------
 if ($DeleteFound) {
