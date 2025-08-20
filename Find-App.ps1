@@ -203,18 +203,16 @@ if ($LiteScan) {
         "$env:USERPROFILE\Downloads",
         "$env:USERPROFILE\Desktop",
         "$env:USERPROFILE\AppData\Local\Programs"
-    ) | Sort-Object -Unique
-
+    )
     $regTargets = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
         "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    ) | Sort-Object -Unique
-
+    )
     $regRoots = @(
         "HKLM:\", 
         "HKCU:\"
-    ) | Where-Object { $_ -notin $regTargets } 
+    )
 
 } else {
     $MaxDepth = 2
@@ -228,19 +226,17 @@ if ($LiteScan) {
         "$env:USERPROFILE\Downloads",
         "$env:USERPROFILE\Desktop",
         "$env:USERPROFILE\AppData\Local\Programs"
-    ) | Sort-Object -Unique
-
+    )
     $regTargets = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
         "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    ) | Sort-Object -Unique
-
+    ) 
     $regRoots = @(
         "HKLM:\SOFTWARE", 
         "HKLM:\SOFTWARE\WOW6432Node", 
         "HKCU:\SOFTWARE"
-    ) | Where-Object { $_ -notin $regTargets } 
+    ) 
 }
 
 # ---------------- GENERAL SKIP ROOTS/KEYS ---------------- 
@@ -262,10 +258,11 @@ $skipKeys = @(
 )
 
 # ---------------- NORMALIZATION ----------------
-$fileRoots  = $fileRoots  | ForEach-Object { ($_ -replace '\\+$','') }
-$regTargets = $regTargets | ForEach-Object { ($_ -replace '\\+$','') }
-$regRoots   = $regRoots   | ForEach-Object { ($_ -replace '\\+$','') }
-$skipRoots  = $skipRoots  | ForEach-Object { ($_ -replace '\\+$','') }
+$fileRoots  = $fileRoots  | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
+$regTargets = $regTargets | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
+$regRoots   = $regRoots   | ForEach-Object { $_.TrimEnd('\') } | Where-Object { $_ -notin $regTargets }
+$skipRoots  = $skipRoots  | ForEach-Object { $_.TrimEnd('\') }
+
 
 # ---------------- UNINSTALL PATHS ----------------
 $uninstallPaths = $regTargets | ForEach-Object { "$_\*" }
