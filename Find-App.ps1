@@ -112,7 +112,7 @@ function Get-ChildItems-Limited {
         if ($Depth -gt $MaxDepth) { return }
         
         try {
-            $items = Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+            $items = Get-ChildItem -LiteralPath $Path -Force
         } catch { return }
 
         foreach ($it in $items) {
@@ -141,7 +141,7 @@ function Get-RegistryKeys-Limited {
         if ($Depth -gt $MaxDepth) { return }
 
         try {
-            $children = Get-ChildItem -Path $KeyPath -ErrorAction SilentlyContinue
+            $children = Get-ChildItem -Path $KeyPath
         } catch { return }
 
         foreach ($ch in $children) {
@@ -279,7 +279,7 @@ Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
 Write-Progress "Scanning installed programs..."
 
 foreach ($p in $uninstallPaths) {
-    $items = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
+    $items = Get-ItemProperty -Path $p
     foreach ($it in $items) {
         if ($it.DisplayName -imatch $escapedAppName) {
             $exists = $foundPrograms | Where-Object {
@@ -294,7 +294,7 @@ foreach ($p in $uninstallPaths) {
 Write-Progress "Scanning running processes..."
 
 try {
-    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -imatch $escapedAppName }
+    $procs = Get-Process | Where-Object { $_.ProcessName -imatch $escapedAppName }
     foreach ($pr in $procs) {
         # avoid duplicates by Id
         if (-not ($foundProcesses | Where-Object { $_.Id -eq $pr.Id })) {
@@ -336,7 +336,7 @@ foreach ($entry in $registryScanList) {
         $keys = if ($entry.Recursive) {
             Get-RegistryKeys-Limited -RootKey $entry.Path -MaxDepth $MaxDepth
         } else {
-            Get-ChildItem -Path $entry.Path -ErrorAction SilentlyContinue
+            Get-ChildItem -Path $entry.Path
         }
     } catch {
         $keys = @()
@@ -347,7 +347,7 @@ foreach ($entry in $registryScanList) {
         if ($skipKeys -contains $k.PSChildName.ToUpper()) { continue }
 
         try {
-            $props = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
+            $props = Get-ItemProperty -Path $k.PSPath
             foreach ($prop in $props.PSObject.Properties) {
                 if ($prop.Value -is [string] -and ($prop.Value -imatch $escapedAppName)) {
                     if (-not ($foundRegistry -contains $k.PSPath)) {
@@ -487,26 +487,26 @@ if ($DeleteFound) {
         if ($confirm -match "^[Yy]$") {
             # stop processes that match (best-effort)
             foreach ($proc in $foundProcesses) {
-                try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+                try { Stop-Process -Id $proc.Id -Force } catch {}
             }
 
             foreach ($f in $foundFiles) {
                 try {
                     if (Test-Path $f.FullName) {
-                        Remove-Item -LiteralPath $f.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                        Remove-Item -LiteralPath $f.FullName -Recurse -Force
                     }
                 } catch {}
             }
 
             foreach ($r in $foundRegistry) {
-                try { Remove-Item -LiteralPath $r -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+                try { Remove-Item -LiteralPath $r -Recurse -Force } catch {}
             }
 
             # Attempt removing uninstall registry entries we found
             foreach ($p in $foundPrograms) {
                 try {
                     if ($p.PSPath) {
-                        Remove-Item -LiteralPath $p.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+                        Remove-Item -LiteralPath $p.PSPath -Recurse -Force
                     }
                 } catch {}
             }
