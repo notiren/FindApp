@@ -99,7 +99,6 @@ if ($Examples) {
 }
 
 # ---------------- HELPERS ----------------
-
 # Limited recursive filesystem enumerator (depth limited)
 function Get-ChildItems-Limited {
     param(
@@ -258,21 +257,21 @@ $skipKeys = @(
 )
 
 # ---------------- NORMALIZATION ----------------
-$fileRoots  = $fileRoots  | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
-$regTargets = $regTargets | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
-$regRoots   = $regRoots   | ForEach-Object { $_.TrimEnd('\') } | Where-Object { $_ -notin $regTargets }
-$skipRoots  = $skipRoots  | ForEach-Object { $_.TrimEnd('\') }
-
+$fileRoots      = $fileRoots  | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
+$regTargets     = $regTargets | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
+$regRoots       = $regRoots   | ForEach-Object { $_.TrimEnd('\') } | Where-Object { $_ -notin $regTargets }
+$skipRoots      = $skipRoots  | ForEach-Object { $_.TrimEnd('\') }
 
 # ---------------- UNINSTALL PATHS ----------------
 $uninstallPaths = $regTargets | ForEach-Object { "$_\*" }
 
 # ---------------- STORAGE ----------------
-$foundPrograms = New-Object System.Collections.Generic.List[Object]
+$foundPrograms  = New-Object System.Collections.Generic.List[Object]
 $foundProcesses = New-Object System.Collections.Generic.List[Object]
-$foundFiles = New-Object System.Collections.Generic.List[Object]
-$foundRegistry = New-Object System.Collections.Generic.List[string]
+$foundFiles     = New-Object System.Collections.Generic.List[Object]
+$foundRegistry  = New-Object System.Collections.Generic.List[string]
 
+# ---------------- START SEARCH ---------------
 Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
 Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
 
@@ -369,14 +368,14 @@ Write-Host ""
 
 # Build summary data
 $summary = @(
-    @{ Label = "Programs Found:";      Count = $foundPrograms.Count }
-    @{ Label = "Processes Found:";     Count = $foundProcesses.Count }
-    @{ Label = "Files/Folders Found:"; Count = $foundFiles.Count }
-    @{ Label = "Registry Entries Found:"; Count = $foundRegistry.Count }
+    @{ Label = "Programs Found:";         Count = $foundPrograms.Count  }
+    @{ Label = "Processes Found:";        Count = $foundProcesses.Count }
+    @{ Label = "Files/Folders Found:";    Count = $foundFiles.Count     }
+    @{ Label = "Registry Entries Found:"; Count = $foundRegistry.Count  }
 )
 
-# Calculate max label length for alignment
-# $maxLabelLen = ($summary.Label | Measure-Object -Maximum Length).Maximum
+# Calculate max label length for alignment                                ; NOT USED
+# $maxLabelLen = ($summary.Label | Measure-Object -Maximum Length).Maximum; NOT USED
 
 # Print aligned counts
 foreach ($item in $summary) {
