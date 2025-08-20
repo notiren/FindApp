@@ -14,7 +14,7 @@ Name of the application to scan for. Mandatory.
 Runs in Lite mode with MaxDepth = 1.
 
 .PARAMETER DeepScan
-Runs in Deep mode with MaxDepth = 3.
+Runs in Deep mode with MaxDepth = 5.
 
 .PARAMETER Silent
 Suppresses detailed output; shows only summary counts.
