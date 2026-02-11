@@ -24,6 +24,10 @@ Saves the scan results to a report file.
 
 .PARAMETER DeleteFound
 Prompts the user to delete all found entries.
+
+.PARAMETER MaxDepth
+Maximum directory/registry depth to scan. Optional; overrides mode defaults.
+Defaults: Lite=4, Fast=3, Deep=5
 #>
 
 [CmdletBinding(DefaultParameterSetName = "Scan")]
@@ -45,6 +49,9 @@ param (
 
     [Parameter(ParameterSetName = "Scan")]
     [switch]$DeleteFound,
+
+    [Parameter(ParameterSetName = "Scan")]
+    [int]$MaxDepth = 0,
 
     [Parameter(Mandatory = $true, ParameterSetName = "Examples")]
     [switch]$Examples
@@ -176,21 +183,24 @@ $escapedAppName = [regex]::Escape($AppName) -replace '\\ ', '[-_\s]*'
 
 # ---------------- MODE-SPECIFIC DEPTH, ROOTS ----------------
 if ($LiteScan) {
-    $MaxDepth = 1
+    if ($MaxDepth -le 0) { $MaxDepth = 4 }
     $ModeName = "LITE"
     $fileRoots = @(
-        "$env:USERPROFILE\AppData\Local",
-        "$env:USERPROFILE\AppData\Roaming"
+        "C:\",
+        "$env:ProgramFiles",
+        "$env:ProgramFiles(x86)",
+        "$env:LOCALAPPDATA",
+        "$env:APPDATA",
+        "$env:ProgramData",
+        "$env:USERPROFILE\Downloads",
+        "$env:USERPROFILE\Desktop",
+        "$env:USERPROFILE\AppData\Local\Programs"
     )
-    $regTargets = @(
-        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-    )
+    $regTargets = @()
     $regRoots = @()
 
 } elseif ($DeepScan) {
-    $MaxDepth = 5
+    if ($MaxDepth -le 0) { $MaxDepth = 5 }
     $ModeName = "DEEP"
     $fileRoots = @(
         "C:\",
@@ -214,7 +224,7 @@ if ($LiteScan) {
     )
 
 } else {
-    $MaxDepth = 2
+    if ($MaxDepth -le 0) { $MaxDepth = 3 }
     $ModeName = "FAST"
     $fileRoots = @(
         "$env:ProgramFiles",
@@ -272,6 +282,7 @@ $foundFiles     = New-Object System.Collections.Generic.List[Object]
 $foundRegistry  = New-Object System.Collections.Generic.List[string]
 
 # ---------------- START SEARCH ---------------
+$scanStartTime = Get-Date
 Write-Host "Starting search for '$AppName' in $ModeName mode..." -ForegroundColor Cyan
 Write-Host "MaxDepth: $MaxDepth" -ForegroundColor DarkGray
 
@@ -424,7 +435,19 @@ foreach ($item in $summary) {
 }
 
 Write-Host ""
-Write-Host "Scan completed." -ForegroundColor Cyan
+$scanEndTime = Get-Date
+$elapsedTime = $scanEndTime - $scanStartTime
+$timeParts = @()
+if ($elapsedTime.Hours -gt 0) { $timeParts += "{0:D2}h" -f $elapsedTime.Hours }
+if ($elapsedTime.Minutes -gt 0) { $timeParts += "{0:D2}m" -f $elapsedTime.Minutes }
+$secStr = if ($elapsedTime.Hours -eq 0 -and $elapsedTime.Minutes -eq 0 -and $elapsedTime.Seconds -lt 10) {
+    "$($elapsedTime.Seconds)s"
+} else {
+    "{0:D2}s" -f $elapsedTime.Seconds
+}
+$timeParts += $secStr
+$timeString = $timeParts -join " "
+Write-Host "Scan completed in $timeString." -ForegroundColor Cyan
 
 # ---------------- SAVE REPORT ----------------
 if ($SaveReport) {
