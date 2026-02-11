@@ -64,9 +64,10 @@
 
 ## Notes
 
-- `-AppName` is required for all scan operations.
-- `-Examples` switch is a separate parameter set and will **not** prompt for an app name.
-- `-DeleteFound` switch requests for confirmation (Y/N) before deleting matched files.
+- `-AppName` (required): Needed for all scan operations except when using.
+- `-Examples` (optional): Shows usage examples and does not require an application name.
+- `-DeleteFound` (optional): Prompts for confirmation (Y/N) before deleting any files, folders, or registry entries.
+- `-MaxDepth` (optional): Sets the maximum number of folder and registry levels to scan, overriding the default for the selected scan mode.
 - Colors in the output help highlight important information (process IDs, registry keys, etc.).
 
 ---
