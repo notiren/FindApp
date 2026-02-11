@@ -64,7 +64,7 @@
 
 ## Notes
 
-- `-AppName` (required): Needed for all scan operations except when using.
+- `-AppName` (required): Needed for all scan operations.
 - `-Examples` (optional): Shows usage examples and does not require an application name.
 - `-DeleteFound` (optional): Prompts for confirmation (Y/N) before deleting any files, folders, or registry entries.
 - `-MaxDepth` (optional): Sets the maximum number of folder and registry levels to scan, overriding the default for the selected scan mode.
