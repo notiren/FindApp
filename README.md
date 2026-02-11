@@ -31,7 +31,7 @@
 ### Switches
 
 ```	ext
--LiteScan      : Perform a quick scan (minimal registry depth).
+-LiteScan      : Perform a quick scan (programs/files/folders only).
 -DeepScan      : Perform a thorough scan (full registry depth).
 -Silent        : Run the scan silently, showing only summary counts.
 -SaveReport    : Save the scan results to a report file.
